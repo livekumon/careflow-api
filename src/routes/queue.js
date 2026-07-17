@@ -7,7 +7,6 @@ const {
   getDoctorOrThrow,
   getClinicBySlug,
   avgFor,
-  maskPhone,
   waitingTickets,
 } = require("../services/queueService");
 
@@ -36,27 +35,41 @@ router.post("/:doctorId/advance", async (req, res, next) => {
 
 router.post("/:doctorId/tickets", async (req, res, next) => {
   try {
+    const { assertCanJoinQueue } = require("../services/availabilityService");
+    const { createWalkInTicket } = require("../services/appointmentQueueService");
     const clinic = await getClinicBySlug(req.params.slug);
     const doctor = await getDoctorOrThrow(clinic._id, req.params.doctorId);
     const name = String(req.body?.name || "").trim();
     const phoneRaw = String(req.body?.phone || "").trim();
     const source = ["manual", "qr", "self"].includes(req.body?.source) ? req.body.source : "manual";
+    const forceExtend = Boolean(req.body?.extendQueue);
     if (!name) return res.status(400).json({ error: "Name is required" });
 
-    const waiting = await waitingTickets(doctor._id);
-    const ticket = await Ticket.create({
+    try {
+      assertCanJoinQueue(doctor, { forceExtend });
+    } catch (err) {
+      return res.status(err.status || 403).json({
+        error: err.message,
+        code: err.code,
+        availability: err.availability,
+      });
+    }
+
+    if (forceExtend && !doctor.queueExtended) {
+      doctor.queueExtended = true;
+      await doctor.save();
+    }
+
+    const { ticket, rankIndex } = await createWalkInTicket(doctor, {
       clinicId: clinic._id,
-      doctorId: doctor._id,
       name,
-      phone: phoneRaw ? maskPhone(phoneRaw) : "—",
-      status: "waiting",
+      phone: phoneRaw,
       source,
-      positionAtJoin: waiting.length + 1,
     });
 
     const avg = avgFor(doctor.consultHistory);
     res.status(201).json({
-      ticket: serializeTicket(ticket.toObject(), waiting.length, avg),
+      ticket: serializeTicket(ticket.toObject(), rankIndex, avg),
       doctor: await serializeDoctor(doctor),
     });
   } catch (err) {
@@ -69,6 +82,7 @@ router.post("/:doctorId/noshow", async (req, res, next) => {
     const clinic = await getClinicBySlug(req.params.slug);
     const doctor = await getDoctorOrThrow(clinic._id, req.params.doctorId);
     const nextWaiting = await Ticket.findOne({ doctorId: doctor._id, status: "waiting" }).sort({
+      orderKey: 1,
       createdAt: 1,
     });
     if (!nextWaiting) return res.status(400).json({ error: "Queue is empty" });

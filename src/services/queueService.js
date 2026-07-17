@@ -1,6 +1,7 @@
 const Doctor = require("../models/Doctor");
 const Ticket = require("../models/Ticket");
 const Clinic = require("../models/Clinic");
+const Appointment = require("../models/Appointment");
 
 function avgFor(history = []) {
   if (!history.length) return 10;
@@ -14,30 +15,44 @@ function maskPhone(phone) {
 }
 
 async function waitingTickets(doctorId) {
-  return Ticket.find({ doctorId, status: "waiting" }).sort({ createdAt: 1 }).lean();
+  return Ticket.find({ doctorId, status: "waiting" })
+    .sort({ orderKey: 1, createdAt: 1 })
+    .lean();
 }
 
-function serializeTicket(ticket, position, avg) {
+function serializeTicket(ticket, rankIndex, avg) {
   if (!ticket) return null;
+  const displayToken =
+    ticket.displayToken != null
+      ? ticket.displayToken
+      : ticket.positionAtJoin || (rankIndex != null ? rankIndex + 1 : null);
   return {
     id: String(ticket._id),
     name: ticket.name,
     phone: ticket.phone,
     status: ticket.status,
     source: ticket.source,
-    waitMinutes: position != null ? (position + 1) * avg : null,
-    position: position != null ? position + 1 : null,
+    displayToken,
+    orderKey: ticket.orderKey,
+    appointmentId: ticket.appointmentId ? String(ticket.appointmentId) : null,
+    /** Stable queue number shown to patients — does not change on mid-inserts. */
+    position: displayToken,
+    /** Live wait from current order (updates when someone is inserted ahead). */
+    waitMinutes: rankIndex != null ? (rankIndex + 1) * avg : null,
+    ahead: rankIndex != null ? rankIndex : null,
     createdAt: ticket.createdAt,
   };
 }
 
 async function serializeDoctor(doctor) {
+  const { getDoctorAvailability } = require("./availabilityService");
   const avg = avgFor(doctor.consultHistory);
   const waiting = await waitingTickets(doctor._id);
   let serving = null;
   if (doctor.servingTicketId) {
     serving = await Ticket.findById(doctor.servingTicketId).lean();
   }
+  const availability = getDoctorAvailability(doctor);
   return {
     id: String(doctor._id),
     key: doctor.key,
@@ -48,6 +63,16 @@ async function serializeDoctor(doctor) {
     waitingCount: waiting.length,
     serving: serializeTicket(serving, null, avg),
     queue: waiting.map((t, i) => serializeTicket(t, i, avg)),
+    schedule: doctor.schedule || [],
+    available: availability.available,
+    unavailableReason: availability.status === "unavailable" ? availability.reason : "",
+    queueExtended: availability.queueExtended,
+    withinHours: availability.withinHours,
+    canJoin: availability.canJoin,
+    availabilityStatus: availability.status,
+    availabilityReason: availability.reason,
+    checkInBeforeMin: doctor.checkInBeforeMin ?? 10,
+    checkInAfterMin: doctor.checkInAfterMin ?? 15,
   };
 }
 
@@ -61,14 +86,21 @@ function logDuration(doctor) {
 
 async function advanceQueue(doctor) {
   if (doctor.servingTicketId) {
-    await Ticket.findByIdAndUpdate(doctor.servingTicketId, {
-      status: "done",
-      completedAt: new Date(),
-    });
+    const finished = await Ticket.findByIdAndUpdate(
+      doctor.servingTicketId,
+      { status: "done", completedAt: new Date() },
+      { new: true }
+    );
+    if (finished?.appointmentId) {
+      await Appointment.findByIdAndUpdate(finished.appointmentId, { status: "completed" });
+    }
     logDuration(doctor);
   }
 
-  const next = await Ticket.findOne({ doctorId: doctor._id, status: "waiting" }).sort({ createdAt: 1 });
+  const next = await Ticket.findOne({ doctorId: doctor._id, status: "waiting" }).sort({
+    orderKey: 1,
+    createdAt: 1,
+  });
   if (next) {
     next.status = "serving";
     next.calledAt = new Date();

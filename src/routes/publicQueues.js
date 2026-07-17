@@ -14,7 +14,9 @@ const { serializeQueue } = require("../services/queueLinkService");
 const router = express.Router();
 
 async function serializeDoctorPublic(doctor) {
+  const { getDoctorAvailability } = require("../services/availabilityService");
   const waiting = await waitingTickets(doctor._id);
+  const availability = getDoctorAvailability(doctor);
   return {
     id: String(doctor._id),
     name: doctor.name,
@@ -22,6 +24,13 @@ async function serializeDoctorPublic(doctor) {
     key: doctor.key,
     waitingCount: waiting.length,
     avgMinutes: avgFor(doctor.consultHistory),
+    available: availability.available,
+    canJoin: availability.canJoin,
+    availabilityStatus: availability.status,
+    unavailableReason: availability.status === "unavailable" ? availability.reason : "",
+    availabilityReason: availability.reason,
+    withinHours: availability.withinHours,
+    queueExtended: availability.queueExtended,
   };
 }
 
@@ -89,10 +98,18 @@ router.get("/:code", async (req, res, next) => {
     }
 
     const waiting = await waitingTickets(doctor._id);
+    const publicDoctor = await serializeDoctorPublic(doctor);
     res.json({
       ...serializeQueue(queue, doctor, clinic),
       waitingCount: waiting.length,
       avgMinutes: avgFor(doctor.consultHistory),
+      available: publicDoctor.available,
+      canJoin: publicDoctor.canJoin,
+      availabilityStatus: publicDoctor.availabilityStatus,
+      unavailableReason: publicDoctor.unavailableReason,
+      availabilityReason: publicDoctor.availabilityReason,
+      withinHours: publicDoctor.withinHours,
+      queueExtended: publicDoctor.queueExtended,
     });
   } catch (err) {
     next(err);
@@ -102,6 +119,7 @@ router.get("/:code", async (req, res, next) => {
 /** Public: patient check-in via queue code. Clinic QR requires doctorId. */
 router.post("/:code/checkin", async (req, res, next) => {
   try {
+    const { assertCanJoinQueue } = require("../services/availabilityService");
     const ctx = await resolveQueueOrThrow(req.params.code);
     const { queue, clinic, scope } = ctx;
     const name = String(req.body?.name || "").trim();
@@ -116,21 +134,28 @@ router.post("/:code/checkin", async (req, res, next) => {
       if (!doctor) return res.status(404).json({ error: "Doctor not found" });
     }
 
-    const waiting = await waitingTickets(doctor._id);
-    const ticket = await Ticket.create({
+    try {
+      assertCanJoinQueue(doctor);
+    } catch (err) {
+      return res.status(err.status || 403).json({
+        error: err.message,
+        code: err.code,
+        availability: err.availability,
+      });
+    }
+
+    const { createWalkInTicket } = require("../services/appointmentQueueService");
+    const { ticket, rankIndex } = await createWalkInTicket(doctor, {
       clinicId: clinic._id,
-      doctorId: doctor._id,
       name,
-      phone: phoneRaw ? maskPhone(phoneRaw) : "—",
-      status: "waiting",
+      phone: phoneRaw,
       source: "qr",
-      positionAtJoin: waiting.length + 1,
     });
 
     const avg = avgFor(doctor.consultHistory);
     res.status(201).json({
       queue: serializeQueue(queue, doctor, clinic),
-      ticket: serializeTicket(ticket.toObject(), waiting.length, avg),
+      ticket: serializeTicket(ticket.toObject(), rankIndex, avg),
       doctor: {
         id: String(doctor._id),
         name: doctor.name,
@@ -177,13 +202,15 @@ router.get("/:code/tickets/:ticketId", async (req, res, next) => {
     if (ticket.status === "waiting") {
       const waiting = await waitingTickets(doctor._id);
       const idx = waiting.findIndex((t) => String(t._id) === String(ticket._id));
+      const serialized = serializeTicket(ticket, idx >= 0 ? idx : null, avg);
       return res.json({
         queue: queuePayload,
         ticket: {
-          ...serializeTicket(ticket, idx, avg),
+          ...serialized,
+          // Keep stable display token as position; ahead/waitMinutes reflect live order.
           beingSeen: false,
           completed: false,
-          ahead: idx,
+          ahead: idx >= 0 ? idx : serialized.ahead,
         },
         doctor: doctorInfo,
         queueDots: waiting.map((t) => String(t._id)),

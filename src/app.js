@@ -8,6 +8,9 @@ const queueRouter = require("./routes/queue");
 const rbacRouter = require("./routes/rbac");
 const clinicQueuesRouter = require("./routes/clinicQueues");
 const publicQueuesRouter = require("./routes/publicQueues");
+const authRouter = require("./routes/auth");
+const doctorsManageRouter = require("./routes/doctorsManage");
+const appointmentsRouter = require("./routes/appointments");
 
 const app = express();
 
@@ -52,7 +55,10 @@ app.use("/api", (req, res, next) => {
   return ensureDb(req, res, next);
 });
 
+app.use("/api/auth", authRouter);
 app.use("/api/clinics", clinicsRouter);
+app.use("/api/clinics/:slug/manage/doctors", doctorsManageRouter);
+app.use("/api/clinics/:slug/appointments", appointmentsRouter);
 app.use("/api/clinics/:slug/doctors", queueRouter);
 app.use("/api/clinics/:slug/queues", clinicQueuesRouter);
 app.use("/api/clinics/:slug/rbac", rbacRouter);
