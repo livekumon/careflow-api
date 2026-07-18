@@ -34,6 +34,9 @@ async function seed() {
   const clinic = await Clinic.create({
     slug: "sunrise-clinic",
     name: "Sunrise Multispecialty",
+    nameKey: "sunrise multispecialty",
+    contactName: "Front Desk",
+    contactPhone: "9876543210",
   });
 
   const mehta = await Doctor.create({

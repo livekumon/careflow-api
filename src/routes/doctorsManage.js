@@ -125,7 +125,10 @@ router.patch("/:doctorId", authRequired, requireRoles("receptionist", "admin"), 
       doctor.specialty = String(req.body.specialty).trim() || doctor.specialty;
     }
     if (req.body?.active != null) doctor.active = Boolean(req.body.active);
-    if (req.body?.schedule != null) doctor.schedule = normalizeScheduleSets(req.body.schedule);
+    if (req.body?.schedule != null) {
+      doctor.schedule = normalizeScheduleSets(req.body.schedule);
+      doctor.markModified("schedule");
+    }
 
     if (req.body?.available === true) {
       doctor.available = true;
@@ -151,7 +154,8 @@ router.patch("/:doctorId", authRequired, requireRoles("receptionist", "admin"), 
     }
 
     await doctor.save();
-    res.json({ doctor: serializeManagedDoctor(doctor) });
+    const fresh = await Doctor.findById(doctor._id);
+    res.json({ doctor: serializeManagedDoctor(fresh) });
   } catch (err) {
     next(err);
   }

@@ -3,12 +3,12 @@ const User = require("../models/User");
 const Doctor = require("../models/Doctor");
 const Clinic = require("../models/Clinic");
 const {
-  hashPassword,
   verifyPassword,
   issueToken,
   verifyToken,
   serializeUser,
 } = require("../services/authService");
+const { registerClinicTenant, findClinicByName } = require("../services/tenantService");
 
 const router = express.Router();
 
@@ -30,20 +30,71 @@ function requireRoles(...roles) {
   };
 }
 
+function serializeClinic(clinic) {
+  if (!clinic) return null;
+  return {
+    id: String(clinic._id),
+    slug: clinic.slug,
+    name: clinic.name,
+    contactName: clinic.contactName || "",
+    contactPhone: clinic.contactPhone || "",
+  };
+}
+
+/** Register a new clinic tenant + admin account. */
+router.post("/register", async (req, res, next) => {
+  try {
+    const { clinic, user } = await registerClinicTenant({
+      clinicName: req.body?.clinicName,
+      contactName: req.body?.name || req.body?.contactName,
+      contactPhone: req.body?.contactNumber || req.body?.contactPhone || req.body?.phone,
+      email: req.body?.email,
+      password: req.body?.password,
+    });
+
+    const token = issueToken(user);
+    res.status(201).json({
+      token,
+      user: serializeUser(user),
+      clinic: serializeClinic(clinic),
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({ error: "Clinic or email already registered" });
+    }
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message, code: err.code });
+    }
+    next(err);
+  }
+});
+
 router.post("/login", async (req, res, next) => {
   try {
+    const clinicName = String(req.body?.clinicName || "").trim();
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "");
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+
+    if (!clinicName || !email || !password) {
+      return res.status(400).json({
+        error: "Clinic name, email, and password are required",
+      });
     }
 
-    const user = await User.findOne({ email, active: true });
+    const clinic = await findClinicByName(clinicName);
+    if (!clinic) {
+      return res.status(401).json({ error: "Clinic not found. Check the clinic name." });
+    }
+
+    const user = await User.findOne({
+      clinicId: clinic._id,
+      email,
+      active: true,
+    });
     if (!user || !verifyPassword(password, user.passwordHash)) {
-      return res.status(401).json({ error: "Invalid email or password" });
+      return res.status(401).json({ error: "Invalid email or password for this clinic" });
     }
 
-    const clinic = await Clinic.findById(user.clinicId).lean();
     let doctor = null;
     if (user.doctorId) {
       doctor = await Doctor.findById(user.doctorId).lean();
@@ -53,9 +104,7 @@ router.post("/login", async (req, res, next) => {
     res.json({
       token,
       user: serializeUser(user, doctor),
-      clinic: clinic
-        ? { id: String(clinic._id), slug: clinic.slug, name: clinic.name }
-        : null,
+      clinic: serializeClinic(clinic),
     });
   } catch (err) {
     next(err);
@@ -71,9 +120,7 @@ router.get("/me", authRequired, async (req, res, next) => {
     if (user.doctorId) doctor = await Doctor.findById(user.doctorId).lean();
     res.json({
       user: serializeUser(user, doctor),
-      clinic: clinic
-        ? { id: String(clinic._id), slug: clinic.slug, name: clinic.name }
-        : null,
+      clinic: serializeClinic(clinic),
     });
   } catch (err) {
     next(err);
