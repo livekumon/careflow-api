@@ -1,46 +1,52 @@
 const Appointment = require("../models/Appointment");
 const Ticket = require("../models/Ticket");
+const Clinic = require("../models/Clinic");
 const { avgFor, waitingTickets, maskPhone } = require("./queueService");
 const { timeToMinutes } = require("./appointmentService");
+const { getZonedParts, resolveClinicTimezone, DEFAULT_TIMEZONE } = require("./timezoneService");
 
-function todayStr(now = new Date()) {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+function todayStr(now = new Date(), timeZone = DEFAULT_TIMEZONE) {
+  return getZonedParts(now, timeZone).dateStr;
 }
 
-function appointmentStartDate(appt, now = new Date()) {
-  const [y, mo, da] = String(appt.date).split("-").map(Number);
-  const [h, mi] = String(appt.startTime || "00:00").split(":").map(Number);
-  return new Date(y, mo - 1, da, h || 0, mi || 0, 0, 0);
-}
-
-function windowBounds(doctor, appt, now = new Date()) {
+function windowBounds(doctor, appt, now = new Date(), timeZone = DEFAULT_TIMEZONE) {
   const before = Math.max(0, Number(doctor.checkInBeforeMin) || 10);
   const after = Math.max(0, Number(doctor.checkInAfterMin) || 15);
-  const start = appointmentStartDate(appt, now);
+  const startMin = timeToMinutes(appt.startTime);
   return {
     before,
     after,
-    start,
-    openAt: new Date(start.getTime() - before * 60 * 1000),
-    closeAt: new Date(start.getTime() + after * 60 * 1000),
+    date: appt.date,
+    startMin,
+    openMin: startMin - before,
+    closeMin: startMin + after,
+    timeZone,
   };
 }
 
 /**
+ * Check-in phase using clinic timezone (not server local/UTC).
  * @returns {'early'|'open'|'late'}
  */
-function getCheckInPhase(doctor, appt, now = new Date()) {
-  const { openAt, closeAt } = windowBounds(doctor, appt, now);
-  if (now < openAt) return "early";
-  if (now <= closeAt) return "open";
+function getCheckInPhase(doctor, appt, now = new Date(), timeZone = DEFAULT_TIMEZONE) {
+  const bounds = windowBounds(doctor, appt, now, timeZone);
+  const zoned = getZonedParts(now, timeZone);
+  if (zoned.dateStr < appt.date) return "early";
+  if (zoned.dateStr > appt.date) return "late";
+  if (zoned.minutes < bounds.openMin) return "early";
+  if (zoned.minutes <= bounds.closeMin) return "open";
   return "late";
 }
 
+async function clinicTimezoneForDoctor(doctor) {
+  if (!doctor?.clinicId) return DEFAULT_TIMEZONE;
+  const clinic = await Clinic.findById(doctor.clinicId).lean();
+  return resolveClinicTimezone(clinic);
+}
+
 async function allocateDisplayToken(doctor, date) {
-  const day = date || todayStr();
+  const timeZone = await clinicTimezoneForDoctor(doctor);
+  const day = date || todayStr(new Date(), timeZone);
   if (doctor.tokenDate !== day) {
     doctor.tokenDate = day;
     doctor.tokenSeq = 0;
@@ -50,9 +56,10 @@ async function allocateDisplayToken(doctor, date) {
   return doctor.tokenSeq;
 }
 
-async function nextAppendOrderKey(doctorId, now = new Date()) {
+async function nextAppendOrderKey(doctorId, now = new Date(), timeZone = DEFAULT_TIMEZONE) {
   const waiting = await waitingTickets(doctorId);
-  const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+  const zoned = getZonedParts(now, timeZone);
+  const nowMin = zoned.minutes + now.getSeconds() / 60;
   const maxWaiting = waiting.reduce((m, t) => Math.max(m, Number(t.orderKey) || 0), 0);
   return Math.max(maxWaiting, nowMin) + 1;
 }
@@ -66,9 +73,17 @@ function midpointOrderKey(beforeKey, afterKey) {
   return (a + b) / 2;
 }
 
+function minutesToClock(total) {
+  const m = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
 /** Mark booked appointments past the check-in window as noshow. */
 async function expireMissedAppointments(clinicId, doctorId, date, doctor, now = new Date()) {
-  const day = date || todayStr(now);
+  const timeZone = await clinicTimezoneForDoctor(doctor);
+  const day = date || todayStr(now, timeZone);
   const booked = await Appointment.find({
     clinicId,
     doctorId,
@@ -77,7 +92,7 @@ async function expireMissedAppointments(clinicId, doctorId, date, doctor, now = 
   });
   let changed = 0;
   for (const appt of booked) {
-    if (getCheckInPhase(doctor, appt, now) === "late") {
+    if (getCheckInPhase(doctor, appt, now, timeZone) === "late") {
       appt.status = "noshow";
       await appt.save();
       changed += 1;
@@ -86,10 +101,15 @@ async function expireMissedAppointments(clinicId, doctorId, date, doctor, now = 
   return changed;
 }
 
-function serializeAppointmentExtra(appt, doctor, now = new Date()) {
+function serializeAppointmentExtra(appt, doctor, now = new Date(), timeZone = DEFAULT_TIMEZONE) {
+  const tz = timeZone || DEFAULT_TIMEZONE;
   const phase =
-    appt.status === "booked" ? getCheckInPhase(doctor, appt, now) : appt.status === "noshow" ? "late" : null;
-  const bounds = windowBounds(doctor, appt, now);
+    appt.status === "booked"
+      ? getCheckInPhase(doctor, appt, now, tz)
+      : appt.status === "noshow"
+        ? "late"
+        : null;
+  const bounds = windowBounds(doctor, appt, now, tz);
   return {
     queueNumber: appt.queueNumber,
     durationMin: appt.durationMin,
@@ -99,8 +119,9 @@ function serializeAppointmentExtra(appt, doctor, now = new Date()) {
     checkInWindow: {
       beforeMin: bounds.before,
       afterMin: bounds.after,
-      openAt: bounds.openAt.toISOString(),
-      closeAt: bounds.closeAt.toISOString(),
+      openTime: minutesToClock(bounds.openMin),
+      closeTime: minutesToClock(bounds.closeMin),
+      timeZone: tz,
     },
   };
 }
@@ -146,6 +167,7 @@ async function checkInAppointment(doctor, appt, { clinicId, now = new Date() } =
     throw err;
   }
 
+  const timeZone = await clinicTimezoneForDoctor(doctor);
   await expireMissedAppointments(appt.clinicId, doctor._id, appt.date, doctor, now);
   const fresh = await Appointment.findById(appt._id);
   if (!fresh) {
@@ -166,11 +188,11 @@ async function checkInAppointment(doctor, appt, { clinicId, now = new Date() } =
     throw err;
   }
 
-  const phase = getCheckInPhase(doctor, fresh, now);
+  const phase = getCheckInPhase(doctor, fresh, now, timeZone);
   if (phase === "early") {
-    const bounds = windowBounds(doctor, fresh, now);
+    const bounds = windowBounds(doctor, fresh, now, timeZone);
     const err = new Error(
-      `Check-in opens at ${bounds.openAt.toTimeString().slice(0, 5)} (${bounds.before} min before appointment)`
+      `Check-in opens at ${minutesToClock(bounds.openMin)} (${bounds.before} min before appointment)`
     );
     err.status = 400;
     err.code = "TOO_EARLY";
@@ -207,8 +229,9 @@ async function lateJoinAppointment(doctor, appt, { placement, afterTicketId, cli
     throw err;
   }
 
+  const timeZone = await clinicTimezoneForDoctor(doctor);
   // Ensure booked-past-window is treated as noshow
-  if (appt.status === "booked" && getCheckInPhase(doctor, appt) === "late") {
+  if (appt.status === "booked" && getCheckInPhase(doctor, appt, new Date(), timeZone) === "late") {
     appt.status = "noshow";
     await appt.save();
   }
@@ -246,8 +269,9 @@ async function lateJoinAppointment(doctor, appt, { placement, afterTicketId, cli
 }
 
 async function createWalkInTicket(doctor, { clinicId, name, phone, source }) {
-  const displayToken = await allocateDisplayToken(doctor, todayStr());
-  const orderKey = await nextAppendOrderKey(doctor._id);
+  const timeZone = await clinicTimezoneForDoctor(doctor);
+  const displayToken = await allocateDisplayToken(doctor, todayStr(new Date(), timeZone));
+  const orderKey = await nextAppendOrderKey(doctor._id, new Date(), timeZone);
   const waiting = await waitingTickets(doctor._id);
   const ticket = await Ticket.create({
     clinicId,

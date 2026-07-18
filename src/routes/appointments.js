@@ -26,7 +26,7 @@ const { authRequired, requireRoles } = require("./auth");
 
 const router = express.Router({ mergeParams: true });
 
-function serializeAppointment(appt, doctor = null, now = new Date()) {
+function serializeAppointment(appt, doctor = null, now = new Date(), timeZone = "Asia/Kolkata") {
   const base = {
     id: String(appt._id),
     doctorId: String(appt.doctorId),
@@ -44,7 +44,7 @@ function serializeAppointment(appt, doctor = null, now = new Date()) {
     createdAt: appt.createdAt,
   };
   if (doctor) {
-    return { ...base, ...serializeAppointmentExtra(appt, doctor, now) };
+    return { ...base, ...serializeAppointmentExtra(appt, doctor, now, timeZone) };
   }
   return {
     ...base,
@@ -85,9 +85,12 @@ router.get("/", async (req, res, next) => {
 
     const appts = await Appointment.find(filter).sort({ startTime: 1 }).lean();
 
+    const timeZone = clinic.timezone || "Asia/Kolkata";
     res.json({
       date,
-      appointments: appts.map((a) => serializeAppointment(a, byId.get(String(a.doctorId)))),
+      appointments: appts.map((a) =>
+        serializeAppointment(a, byId.get(String(a.doctorId)), new Date(), timeZone)
+      ),
     });
   } catch (err) {
     next(err);

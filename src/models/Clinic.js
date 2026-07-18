@@ -8,6 +8,8 @@ const clinicSchema = new mongoose.Schema(
     nameKey: { type: String, required: true, unique: true, index: true },
     contactName: { type: String, default: "" },
     contactPhone: { type: String, default: "" },
+    /** IANA timezone for consultation hours (Vercel runs in UTC). */
+    timezone: { type: String, default: "Asia/Kolkata" },
     active: { type: Boolean, default: true },
   },
   { timestamps: true }

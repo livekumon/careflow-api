@@ -44,15 +44,21 @@ function serializeTicket(ticket, rankIndex, avg) {
   };
 }
 
-async function serializeDoctor(doctor) {
+async function serializeDoctor(doctor, timeZoneOrClinic = null) {
   const { getDoctorAvailability } = require("./availabilityService");
+  const { resolveClinicTimezone, DEFAULT_TIMEZONE } = require("./timezoneService");
+  let timeZone = resolveClinicTimezone(timeZoneOrClinic);
+  if (!timeZoneOrClinic && doctor.clinicId) {
+    const clinic = await Clinic.findById(doctor.clinicId).lean();
+    timeZone = resolveClinicTimezone(clinic) || DEFAULT_TIMEZONE;
+  }
   const avg = avgFor(doctor.consultHistory);
   const waiting = await waitingTickets(doctor._id);
   let serving = null;
   if (doctor.servingTicketId) {
     serving = await Ticket.findById(doctor.servingTicketId).lean();
   }
-  const availability = getDoctorAvailability(doctor);
+  const availability = getDoctorAvailability(doctor, new Date(), timeZone);
   return {
     id: String(doctor._id),
     key: doctor.key,
@@ -73,6 +79,7 @@ async function serializeDoctor(doctor) {
     availabilityReason: availability.reason,
     checkInBeforeMin: doctor.checkInBeforeMin ?? 10,
     checkInAfterMin: doctor.checkInAfterMin ?? 15,
+    timeZone: availability.timeZone,
   };
 }
 

@@ -46,7 +46,7 @@ router.post("/:doctorId/tickets", async (req, res, next) => {
     if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
-      assertCanJoinQueue(doctor, { forceExtend });
+      assertCanJoinQueue(doctor, { forceExtend, timeZone: clinic });
     } catch (err) {
       return res.status(err.status || 403).json({
         error: err.message,

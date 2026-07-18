@@ -10,9 +10,9 @@ const { authRequired, requireRoles } = require("./auth");
 
 const router = express.Router({ mergeParams: true });
 
-function serializeManagedDoctor(doctor) {
+function serializeManagedDoctor(doctor, clinic = null) {
   const { getDoctorAvailability } = require("../services/availabilityService");
-  const availability = getDoctorAvailability(doctor);
+  const availability = getDoctorAvailability(doctor, new Date(), clinic);
   return {
     id: String(doctor._id),
     key: doctor.key,
@@ -39,8 +39,13 @@ router.get("/", authRequired, requireRoles("receptionist", "admin"), async (req,
     const clinic = await getClinicBySlug(req.params.slug);
     const doctors = await Doctor.find({ clinicId: clinic._id }).sort({ key: 1 }).lean();
     res.json({
-      clinic: { id: String(clinic._id), slug: clinic.slug, name: clinic.name },
-      doctors: doctors.map(serializeManagedDoctor),
+      clinic: {
+        id: String(clinic._id),
+        slug: clinic.slug,
+        name: clinic.name,
+        timezone: clinic.timezone || "Asia/Kolkata",
+      },
+      doctors: doctors.map((d) => serializeManagedDoctor(d, clinic)),
     });
   } catch (err) {
     next(err);
@@ -107,7 +112,7 @@ router.post("/", authRequired, requireRoles("receptionist", "admin"), async (req
       });
     }
 
-    res.status(201).json({ doctor: serializeManagedDoctor(doctor) });
+    res.status(201).json({ doctor: serializeManagedDoctor(doctor, clinic) });
   } catch (err) {
     next(err);
   }
@@ -155,7 +160,7 @@ router.patch("/:doctorId", authRequired, requireRoles("receptionist", "admin"), 
 
     await doctor.save();
     const fresh = await Doctor.findById(doctor._id);
-    res.json({ doctor: serializeManagedDoctor(fresh) });
+    res.json({ doctor: serializeManagedDoctor(fresh, clinic) });
   } catch (err) {
     next(err);
   }

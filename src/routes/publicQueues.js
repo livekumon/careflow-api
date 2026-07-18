@@ -13,10 +13,10 @@ const { serializeQueue } = require("../services/queueLinkService");
 
 const router = express.Router();
 
-async function serializeDoctorPublic(doctor) {
+async function serializeDoctorPublic(doctor, clinic) {
   const { getDoctorAvailability } = require("../services/availabilityService");
   const waiting = await waitingTickets(doctor._id);
-  const availability = getDoctorAvailability(doctor);
+  const availability = getDoctorAvailability(doctor, new Date(), clinic);
   return {
     id: String(doctor._id),
     name: doctor.name,
@@ -31,6 +31,7 @@ async function serializeDoctorPublic(doctor) {
     availabilityReason: availability.reason,
     withinHours: availability.withinHours,
     queueExtended: availability.queueExtended,
+    timeZone: availability.timeZone,
   };
 }
 
@@ -85,7 +86,7 @@ router.get("/:code", async (req, res, next) => {
     const { queue, clinic, doctor, doctors, scope } = ctx;
 
     if (scope === "clinic") {
-      const doctorList = await Promise.all(doctors.map(serializeDoctorPublic));
+      const doctorList = await Promise.all(doctors.map((d) => serializeDoctorPublic(d, clinic)));
       const waitingCount = doctorList.reduce((sum, d) => sum + d.waitingCount, 0);
       return res.json({
         ...serializeQueue(queue, null, clinic),
@@ -98,7 +99,7 @@ router.get("/:code", async (req, res, next) => {
     }
 
     const waiting = await waitingTickets(doctor._id);
-    const publicDoctor = await serializeDoctorPublic(doctor);
+    const publicDoctor = await serializeDoctorPublic(doctor, clinic);
     res.json({
       ...serializeQueue(queue, doctor, clinic),
       waitingCount: waiting.length,
@@ -135,7 +136,7 @@ router.post("/:code/checkin", async (req, res, next) => {
     }
 
     try {
-      assertCanJoinQueue(doctor);
+      assertCanJoinQueue(doctor, { timeZone: clinic });
     } catch (err) {
       return res.status(err.status || 403).json({
         error: err.message,

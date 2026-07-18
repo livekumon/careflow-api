@@ -37,9 +37,14 @@ router.get("/:slug/doctors", async (req, res, next) => {
   try {
     const clinic = await getClinicBySlug(req.params.slug);
     const doctors = await Doctor.find({ clinicId: clinic._id, active: true }).sort({ key: 1 });
-    const payload = await Promise.all(doctors.map(serializeDoctor));
+    const payload = await Promise.all(doctors.map((d) => serializeDoctor(d, clinic)));
     res.json({
-      clinic: { id: String(clinic._id), slug: clinic.slug, name: clinic.name },
+      clinic: {
+        id: String(clinic._id),
+        slug: clinic.slug,
+        name: clinic.name,
+        timezone: clinic.timezone || "Asia/Kolkata",
+      },
       doctors: payload,
     });
   } catch (err) {

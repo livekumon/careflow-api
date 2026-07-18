@@ -94,6 +94,7 @@ async function registerClinicTenant({
     nameKey,
     contactName: adminName,
     contactPhone: phone,
+    timezone: "Asia/Kolkata",
     active: true,
   });
 

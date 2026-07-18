@@ -1,6 +1,5 @@
 const { normalizeScheduleSets } = require("./scheduleService");
-
-const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const { getZonedParts, resolveClinicTimezone, DEFAULT_TIMEZONE } = require("./timezoneService");
 
 function timeToMinutes(value) {
   const [h, m] = String(value || "00:00")
@@ -10,10 +9,16 @@ function timeToMinutes(value) {
   return h * 60 + m;
 }
 
-function isWithinSchedule(doctor, now = new Date()) {
+/**
+ * @param {object} doctor
+ * @param {Date} [now]
+ * @param {string} [timeZone] IANA zone, e.g. Asia/Kolkata
+ */
+function isWithinSchedule(doctor, now = new Date(), timeZone = DEFAULT_TIMEZONE) {
   const sets = normalizeScheduleSets(doctor.schedule);
-  const day = DAY_KEYS[now.getDay()];
-  const minutes = now.getHours() * 60 + now.getMinutes();
+  const zoned = getZonedParts(now, timeZone);
+  const day = zoned.dayKey;
+  const minutes = zoned.minutes;
 
   for (const set of sets) {
     if (!set.days?.includes(day)) continue;
@@ -33,14 +38,16 @@ function isWithinSchedule(doctor, now = new Date()) {
  *  reason: string,
  *  withinHours: boolean,
  *  queueExtended: boolean,
- *  available: boolean
+ *  available: boolean,
+ *  timeZone: string
  * }}
  */
-function getDoctorAvailability(doctor, now = new Date()) {
+function getDoctorAvailability(doctor, now = new Date(), timeZoneOrClinic = DEFAULT_TIMEZONE) {
+  const timeZone = resolveClinicTimezone(timeZoneOrClinic);
   const available = doctor.available !== false;
   const reason = String(doctor.unavailableReason || "").trim();
   const queueExtended = Boolean(doctor.queueExtended);
-  const withinHours = isWithinSchedule(doctor, now);
+  const withinHours = isWithinSchedule(doctor, now, timeZone);
 
   if (!available) {
     return {
@@ -50,6 +57,7 @@ function getDoctorAvailability(doctor, now = new Date()) {
       withinHours,
       queueExtended,
       available: false,
+      timeZone,
     };
   }
 
@@ -61,6 +69,7 @@ function getDoctorAvailability(doctor, now = new Date()) {
       withinHours: true,
       queueExtended,
       available: true,
+      timeZone,
     };
   }
 
@@ -72,6 +81,7 @@ function getDoctorAvailability(doctor, now = new Date()) {
       withinHours: false,
       queueExtended: true,
       available: true,
+      timeZone,
     };
   }
 
@@ -82,11 +92,12 @@ function getDoctorAvailability(doctor, now = new Date()) {
     withinHours: false,
     queueExtended: false,
     available: true,
+    timeZone,
   };
 }
 
-function assertCanJoinQueue(doctor, { forceExtend = false } = {}) {
-  const availability = getDoctorAvailability(doctor);
+function assertCanJoinQueue(doctor, { forceExtend = false, timeZone } = {}) {
+  const availability = getDoctorAvailability(doctor, new Date(), timeZone);
   if (availability.status === "unavailable") {
     const err = new Error(availability.reason);
     err.status = 403;

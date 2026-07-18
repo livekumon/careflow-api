@@ -37,6 +37,7 @@ async function seed() {
     nameKey: "sunrise multispecialty",
     contactName: "Front Desk",
     contactPhone: "9876543210",
+    timezone: "Asia/Kolkata",
   });
 
   const mehta = await Doctor.create({
