@@ -39,12 +39,26 @@ async function uniqueClinicSlug(name) {
 /**
  * Create a new clinic tenant with admin user, clinic QR, and default RBAC.
  */
+function normalizeLocation(input = {}) {
+  const src = input.location && typeof input.location === "object" ? input.location : input;
+  const city = String(src.city || "").trim();
+  const state = String(src.state || "").trim();
+  const country = String(src.country || "India").trim() || "India";
+  const address = String(src.address || "").trim();
+  return { address, city, state, country };
+}
+
 async function registerClinicTenant({
   clinicName,
   contactName,
   contactPhone,
   email,
   password,
+  location,
+  address,
+  city,
+  state,
+  country,
 }) {
   const name = normalizeClinicName(clinicName);
   const nameKey = clinicNameKey(name);
@@ -52,6 +66,7 @@ async function registerClinicTenant({
   const phone = String(contactPhone || "").trim();
   const adminEmail = String(email || "").trim().toLowerCase();
   const adminPassword = String(password || "");
+  const loc = normalizeLocation({ location, address, city, state, country });
 
   if (!name) {
     const err = new Error("Clinic name is required");
@@ -65,6 +80,16 @@ async function registerClinicTenant({
   }
   if (!phone) {
     const err = new Error("Contact number is required");
+    err.status = 400;
+    throw err;
+  }
+  if (!loc.city) {
+    const err = new Error("Clinic city is required");
+    err.status = 400;
+    throw err;
+  }
+  if (!loc.state) {
+    const err = new Error("Clinic state is required");
     err.status = 400;
     throw err;
   }
@@ -94,7 +119,10 @@ async function registerClinicTenant({
     nameKey,
     contactName: adminName,
     contactPhone: phone,
+    location: loc,
     timezone: "Asia/Kolkata",
+    checkInBeforeMin: 10,
+    checkInAfterMin: 15,
     active: true,
   });
 

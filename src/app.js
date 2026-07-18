@@ -11,6 +11,8 @@ const publicQueuesRouter = require("./routes/publicQueues");
 const authRouter = require("./routes/auth");
 const doctorsManageRouter = require("./routes/doctorsManage");
 const appointmentsRouter = require("./routes/appointments");
+const clinicSettingsRouter = require("./routes/clinicSettings");
+const superAdminRouter = require("./routes/superAdmin");
 
 const app = express();
 
@@ -56,7 +58,9 @@ app.use("/api", (req, res, next) => {
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/superadmin", superAdminRouter);
 app.use("/api/clinics", clinicsRouter);
+app.use("/api/clinics/:slug/settings", clinicSettingsRouter);
 app.use("/api/clinics/:slug/manage/doctors", doctorsManageRouter);
 app.use("/api/clinics/:slug/appointments", appointmentsRouter);
 app.use("/api/clinics/:slug/doctors", queueRouter);

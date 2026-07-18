@@ -85,6 +85,8 @@ router.post("/", authRequired, requireRoles("receptionist", "admin"), async (req
       specialty,
       schedule,
       consultHistory: [10, 10, 10, 10, 10],
+      checkInBeforeMin: clinic.checkInBeforeMin ?? 10,
+      checkInAfterMin: clinic.checkInAfterMin ?? 15,
       active: true,
     });
 

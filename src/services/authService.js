@@ -48,7 +48,7 @@ function issueToken(user) {
   return signToken({
     sub: String(user._id),
     role: user.role,
-    clinicId: String(user.clinicId),
+    clinicId: user.clinicId ? String(user.clinicId) : null,
     doctorId: user.doctorId ? String(user.doctorId) : null,
     exp: Date.now() + TOKEN_TTL_MS,
   });
@@ -60,7 +60,7 @@ function serializeUser(user, doctor = null) {
     email: user.email,
     name: user.name,
     role: user.role,
-    clinicId: String(user.clinicId),
+    clinicId: user.clinicId ? String(user.clinicId) : null,
     doctorId: user.doctorId ? String(user.doctorId) : null,
     doctor: doctor
       ? {
