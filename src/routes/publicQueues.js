@@ -168,6 +168,23 @@ router.post("/:code/checkin", async (req, res, next) => {
   }
 });
 
+async function nowServingInfo(doctor) {
+  if (!doctor?.servingTicketId) return null;
+  const serving = await Ticket.findById(doctor.servingTicketId).lean();
+  if (!serving) return null;
+  const token =
+    serving.displayToken != null
+      ? serving.displayToken
+      : serving.positionAtJoin != null
+        ? serving.positionAtJoin
+        : null;
+  return {
+    ticketId: String(serving._id),
+    displayToken: token,
+    name: serving.name || "",
+  };
+}
+
 router.get("/:code/tickets/:ticketId", async (req, res, next) => {
   try {
     const ctx = await resolveQueueOrThrow(req.params.code);
@@ -185,17 +202,19 @@ router.get("/:code/tickets/:ticketId", async (req, res, next) => {
     const avg = avgFor(doctor.consultHistory);
     const doctorInfo = { id: String(doctor._id), name: doctor.name, specialty: doctor.specialty };
     const queuePayload = serializeQueue(queue, doctor, clinic);
+    const nowServing = await nowServingInfo(doctor);
 
     if (ticket.status === "serving" && String(doctor.servingTicketId) === String(ticket._id)) {
+      const serialized = serializeTicket(ticket, null, avg);
       return res.json({
         queue: queuePayload,
         ticket: {
-          ...serializeTicket(ticket, null, avg),
-          position: 0,
+          ...serialized,
           waitMinutes: 0,
           beingSeen: true,
           completed: false,
         },
+        nowServing,
         doctor: doctorInfo,
       });
     }
@@ -213,6 +232,7 @@ router.get("/:code/tickets/:ticketId", async (req, res, next) => {
           completed: false,
           ahead: idx >= 0 ? idx : serialized.ahead,
         },
+        nowServing,
         doctor: doctorInfo,
         queueDots: waiting.map((t) => String(t._id)),
       });
@@ -224,9 +244,11 @@ router.get("/:code/tickets/:ticketId", async (req, res, next) => {
         id: String(ticket._id),
         name: ticket.name,
         status: ticket.status,
+        displayToken: ticket.displayToken ?? ticket.positionAtJoin ?? null,
         beingSeen: false,
         completed: ["done", "cancelled", "noshow"].includes(ticket.status),
       },
+      nowServing,
       doctor: doctorInfo,
     });
   } catch (err) {
