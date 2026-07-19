@@ -13,6 +13,8 @@ const doctorsManageRouter = require("./routes/doctorsManage");
 const appointmentsRouter = require("./routes/appointments");
 const clinicSettingsRouter = require("./routes/clinicSettings");
 const superAdminRouter = require("./routes/superAdmin");
+const subscriptionRouter = require("./routes/subscription");
+const paymentsRouter = require("./routes/payments");
 
 const app = express();
 
@@ -58,6 +60,8 @@ app.use("/api", (req, res, next) => {
 });
 
 app.use("/api/auth", authRouter);
+app.use("/api/subscription", subscriptionRouter);
+app.use("/api/payments", paymentsRouter);
 app.use("/api/superadmin", superAdminRouter);
 app.use("/api/clinics", clinicsRouter);
 app.use("/api/clinics/:slug/settings", clinicSettingsRouter);

@@ -112,6 +112,7 @@ async function registerClinicTenant({
     throw err;
   }
 
+  const { trialEndsFrom } = require("./subscriptionService");
   const slug = await uniqueClinicSlug(name);
   const clinic = await Clinic.create({
     slug,
@@ -124,6 +125,8 @@ async function registerClinicTenant({
     checkInBeforeMin: 10,
     checkInAfterMin: 15,
     active: true,
+    trialEndsAt: trialEndsFrom(new Date()),
+    subscriptionStatus: "trial",
   });
 
   const user = await User.create({

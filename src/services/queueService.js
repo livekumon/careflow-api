@@ -148,6 +148,12 @@ async function getClinicBySlug(slug) {
     err.status = 404;
     throw err;
   }
+  if (clinic.accessStopped) {
+    const err = new Error("Clinic access has been stopped");
+    err.status = 403;
+    err.code = "ACCESS_STOPPED";
+    throw err;
+  }
   return clinic;
 }
 

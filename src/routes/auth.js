@@ -9,6 +9,7 @@ const {
   serializeUser,
 } = require("../services/authService");
 const { registerClinicTenant, findClinicByName } = require("../services/tenantService");
+const { getBillingState } = require("../services/subscriptionService");
 
 const router = express.Router();
 
@@ -47,6 +48,7 @@ function serializeClinic(clinic) {
     timezone: clinic.timezone || "Asia/Kolkata",
     checkInBeforeMin: clinic.checkInBeforeMin ?? 10,
     checkInAfterMin: clinic.checkInAfterMin ?? 15,
+    billing: getBillingState(clinic),
   };
 }
 
@@ -125,6 +127,12 @@ router.post("/login", async (req, res, next) => {
     if (!clinic) {
       return res.status(401).json({ error: "Clinic not found. Check the clinic name." });
     }
+    if (clinic.accessStopped) {
+      return res.status(403).json({
+        error: "Clinic access has been stopped. Contact support if you need it restored.",
+        code: "ACCESS_STOPPED",
+      });
+    }
 
     const user = await User.findOne({
       clinicId: clinic._id,
@@ -164,6 +172,15 @@ router.get("/me", authRequired, async (req, res, next) => {
     }
 
     const clinic = await Clinic.findById(user.clinicId).lean();
+    if (!clinic?.active) {
+      return res.status(401).json({ error: "Clinic not found", code: "CLINIC_MISSING" });
+    }
+    if (clinic.accessStopped) {
+      return res.status(403).json({
+        error: "Clinic access has been stopped. Contact support if you need it restored.",
+        code: "ACCESS_STOPPED",
+      });
+    }
     let doctor = null;
     if (user.doctorId) doctor = await Doctor.findById(user.doctorId).lean();
     res.json({
