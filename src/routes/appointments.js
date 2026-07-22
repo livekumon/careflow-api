@@ -3,7 +3,6 @@ const Appointment = require("../models/Appointment");
 const Doctor = require("../models/Doctor");
 const {
   getClinicBySlug,
-  maskPhone,
   avgFor,
   serializeDoctor,
   serializeTicket,
@@ -204,7 +203,7 @@ router.post("/", async (req, res, next) => {
       clinicId: clinic._id,
       doctorId: doctor._id,
       patientName,
-      phone: maskPhone(phoneRaw),
+      phone: phoneRaw,
       date,
       startTime,
       endTime,

@@ -1,7 +1,7 @@
 const Appointment = require("../models/Appointment");
 const Ticket = require("../models/Ticket");
 const Clinic = require("../models/Clinic");
-const { avgFor, waitingTickets, maskPhone } = require("./queueService");
+const { avgFor, waitingTickets } = require("./queueService");
 const { timeToMinutes } = require("./appointmentService");
 const { getZonedParts, resolveClinicTimezone, DEFAULT_TIMEZONE } = require("./timezoneService");
 
@@ -273,11 +273,13 @@ async function createWalkInTicket(doctor, { clinicId, name, phone, source }) {
   const displayToken = await allocateDisplayToken(doctor, todayStr(new Date(), timeZone));
   const orderKey = await nextAppendOrderKey(doctor._id, new Date(), timeZone);
   const waiting = await waitingTickets(doctor._id);
+  const phoneStored = String(phone || "").trim() || "—";
   const ticket = await Ticket.create({
     clinicId,
     doctorId: doctor._id,
     name,
-    phone: phone ? maskPhone(phone) : "—",
+    // Store full number for staff call-backs; public APIs can mask on read if needed.
+    phone: phoneStored,
     status: "waiting",
     source,
     displayToken,

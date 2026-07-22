@@ -145,6 +145,41 @@ router.post("/:code/checkin", async (req, res, next) => {
       });
     }
 
+    const avg = avgFor(doctor.consultHistory);
+    const doctorPayload = {
+      id: String(doctor._id),
+      name: doctor.name,
+      specialty: doctor.specialty,
+    };
+
+    // Collapse rapid duplicate check-ins (double-tap / flaky network retry)
+    const phoneStored = phoneRaw || "—";
+    const recentCutoff = new Date(Date.now() - 45_000);
+    const existing = await Ticket.findOne({
+      doctorId: doctor._id,
+      clinicId: clinic._id,
+      name,
+      phone: phoneStored,
+      status: { $in: ["waiting", "serving"] },
+      createdAt: { $gte: recentCutoff },
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (existing) {
+      const waiting = await waitingTickets(doctor._id);
+      const rankIndex = waiting.findIndex((t) => String(t._id) === String(existing._id));
+      return res.status(200).json({
+        queue: serializeQueue(queue, doctor, clinic),
+        ticket: {
+          ...serializeTicket(existing, rankIndex >= 0 ? rankIndex : null, avg),
+          phone: maskPhone(existing.phone),
+        },
+        doctor: doctorPayload,
+        reused: true,
+      });
+    }
+
     const { createWalkInTicket } = require("../services/appointmentQueueService");
     const { ticket, rankIndex } = await createWalkInTicket(doctor, {
       clinicId: clinic._id,
@@ -153,15 +188,11 @@ router.post("/:code/checkin", async (req, res, next) => {
       source: "qr",
     });
 
-    const avg = avgFor(doctor.consultHistory);
+    const serialized = serializeTicket(ticket.toObject(), rankIndex, avg);
     res.status(201).json({
       queue: serializeQueue(queue, doctor, clinic),
-      ticket: serializeTicket(ticket.toObject(), rankIndex, avg),
-      doctor: {
-        id: String(doctor._id),
-        name: doctor.name,
-        specialty: doctor.specialty,
-      },
+      ticket: { ...serialized, phone: maskPhone(serialized.phone) },
+      doctor: doctorPayload,
     });
   } catch (err) {
     next(err);
