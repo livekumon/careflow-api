@@ -57,6 +57,12 @@ async function serializeDoctor(doctor, timeZoneOrClinic = null) {
   let serving = null;
   if (doctor.servingTicketId) {
     serving = await Ticket.findById(doctor.servingTicketId).lean();
+    if (serving && serving.status !== "serving") serving = null;
+  }
+  if (!serving) {
+    serving = await Ticket.findOne({ doctorId: doctor._id, status: "serving" })
+      .sort({ calledAt: -1, updatedAt: -1 })
+      .lean();
   }
   const availability = getDoctorAvailability(doctor, new Date(), timeZone);
   return {

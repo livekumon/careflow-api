@@ -108,7 +108,7 @@ router.get("/:doctorId/tickets/:ticketId", async (req, res, next) => {
     const avg = avgFor(doctor.consultHistory);
     const doctorInfo = { id: String(doctor._id), name: doctor.name, specialty: doctor.specialty };
 
-    if (ticket.status === "serving" && String(doctor.servingTicketId) === String(ticket._id)) {
+    if (ticket.status === "serving") {
       return res.json({
         ticket: {
           ...serializeTicket(ticket, null, avg),

@@ -199,20 +199,55 @@ router.post("/:code/checkin", async (req, res, next) => {
   }
 });
 
+function ticketDisplayToken(ticket) {
+  if (!ticket) return null;
+  if (ticket.displayToken != null) return ticket.displayToken;
+  if (ticket.positionAtJoin != null) return ticket.positionAtJoin;
+  return null;
+}
+
+/**
+ * Number shown as "Now serving" on the patient view:
+ * 1) ticket currently with the doctor (status serving)
+ * 2) else the last completed / no-show token so the board keeps the doctor's current number
+ */
 async function nowServingInfo(doctor) {
-  if (!doctor?.servingTicketId) return null;
-  const serving = await Ticket.findById(doctor.servingTicketId).lean();
-  if (!serving) return null;
-  const token =
-    serving.displayToken != null
-      ? serving.displayToken
-      : serving.positionAtJoin != null
-        ? serving.positionAtJoin
-        : null;
+  if (!doctor?._id) return null;
+
+  let serving = null;
+  if (doctor.servingTicketId) {
+    serving = await Ticket.findById(doctor.servingTicketId).lean();
+    if (serving && serving.status !== "serving") serving = null;
+  }
+  if (!serving) {
+    serving = await Ticket.findOne({ doctorId: doctor._id, status: "serving" })
+      .sort({ calledAt: -1, updatedAt: -1 })
+      .lean();
+  }
+
+  if (serving) {
+    return {
+      ticketId: String(serving._id),
+      displayToken: ticketDisplayToken(serving),
+      name: serving.name || "",
+    };
+  }
+
+  // Keep showing the doctor's latest progressed queue number between patients.
+  const last = await Ticket.findOne({
+    doctorId: doctor._id,
+    status: { $in: ["done", "noshow"] },
+  })
+    .sort({ completedAt: -1, calledAt: -1, updatedAt: -1, createdAt: -1 })
+    .lean();
+
+  const token = ticketDisplayToken(last);
+  if (token == null) return null;
+
   return {
-    ticketId: String(serving._id),
+    ticketId: String(last._id),
     displayToken: token,
-    name: serving.name || "",
+    name: last.name || "",
   };
 }
 
@@ -235,8 +270,13 @@ router.get("/:code/tickets/:ticketId", async (req, res, next) => {
     const queuePayload = serializeQueue(queue, doctor, clinic);
     const nowServing = await nowServingInfo(doctor);
 
-    if (ticket.status === "serving" && String(doctor.servingTicketId) === String(ticket._id)) {
+    if (ticket.status === "serving") {
       const serialized = serializeTicket(ticket, null, avg);
+      const selfServing = {
+        ticketId: String(ticket._id),
+        displayToken: ticketDisplayToken(ticket),
+        name: ticket.name || "",
+      };
       return res.json({
         queue: queuePayload,
         ticket: {
@@ -245,7 +285,7 @@ router.get("/:code/tickets/:ticketId", async (req, res, next) => {
           beingSeen: true,
           completed: false,
         },
-        nowServing,
+        nowServing: nowServing || selfServing,
         doctor: doctorInfo,
       });
     }
