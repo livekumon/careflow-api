@@ -20,19 +20,25 @@ const ALLOWED_TIMEZONES = [
   "UTC",
 ];
 
+const ALLOWED_LANGUAGES = ["en", "es", "fr", "zh", "ja", "te", "hi"];
+
 function serializeSettings(clinic) {
   return {
     id: String(clinic._id),
     slug: clinic.slug,
     name: clinic.name,
     timezone: clinic.timezone || "Asia/Kolkata",
+    preferredLanguage: ALLOWED_LANGUAGES.includes(clinic.preferredLanguage)
+      ? clinic.preferredLanguage
+      : "en",
     checkInBeforeMin: clinic.checkInBeforeMin ?? 10,
     checkInAfterMin: clinic.checkInAfterMin ?? 15,
     allowedTimezones: ALLOWED_TIMEZONES,
+    allowedLanguages: ALLOWED_LANGUAGES,
   };
 }
 
-router.use(authRequired, requireRoles("admin"));
+router.use(authRequired, requireRoles("admin", "receptionist", "doctor"));
 
 router.get("/", async (req, res, next) => {
   try {
@@ -48,7 +54,18 @@ router.patch("/", async (req, res, next) => {
     const clinic = await Clinic.findOne({ slug: req.params.slug, active: true });
     if (!clinic) return res.status(404).json({ error: "Clinic not found" });
 
+    const isAdmin = req.auth?.role === "admin";
+
+    if (req.body?.preferredLanguage != null) {
+      const lang = String(req.body.preferredLanguage).trim();
+      if (!ALLOWED_LANGUAGES.includes(lang)) {
+        return res.status(400).json({ error: "Unsupported language" });
+      }
+      clinic.preferredLanguage = lang;
+    }
+
     if (req.body?.timezone != null) {
+      if (!isAdmin) return res.status(403).json({ error: "Admin only" });
       const tz = String(req.body.timezone).trim();
       if (!ALLOWED_TIMEZONES.includes(tz)) {
         return res.status(400).json({ error: "Unsupported timezone" });
@@ -56,17 +73,20 @@ router.patch("/", async (req, res, next) => {
       clinic.timezone = tz;
     }
 
-    if (req.body?.checkInBeforeMin != null) {
-      clinic.checkInBeforeMin = Math.min(120, Math.max(0, Number(req.body.checkInBeforeMin) || 0));
-    }
-    if (req.body?.checkInAfterMin != null) {
-      clinic.checkInAfterMin = Math.min(120, Math.max(0, Number(req.body.checkInAfterMin) || 0));
+    if (req.body?.checkInBeforeMin != null || req.body?.checkInAfterMin != null) {
+      if (!isAdmin) return res.status(403).json({ error: "Admin only" });
+      if (req.body?.checkInBeforeMin != null) {
+        clinic.checkInBeforeMin = Math.min(120, Math.max(0, Number(req.body.checkInBeforeMin) || 0));
+      }
+      if (req.body?.checkInAfterMin != null) {
+        clinic.checkInAfterMin = Math.min(120, Math.max(0, Number(req.body.checkInAfterMin) || 0));
+      }
     }
 
     await clinic.save();
 
     // Keep doctor check-in windows aligned with clinic defaults when hours are saved.
-    if (req.body?.checkInBeforeMin != null || req.body?.checkInAfterMin != null) {
+    if (isAdmin && (req.body?.checkInBeforeMin != null || req.body?.checkInAfterMin != null)) {
       await Doctor.updateMany(
         { clinicId: clinic._id },
         {

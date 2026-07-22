@@ -172,4 +172,25 @@ router.post("/:doctorId/tickets/:ticketId/cancel", async (req, res, next) => {
   }
 });
 
+router.post("/:doctorId/tickets/:ticketId/noshow", async (req, res, next) => {
+  try {
+    const clinic = await getClinicBySlug(req.params.slug);
+    const doctor = await getDoctorOrThrow(clinic._id, req.params.doctorId);
+    const ticket = await Ticket.findOne({
+      _id: req.params.ticketId,
+      doctorId: doctor._id,
+      clinicId: clinic._id,
+    });
+    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+    if (ticket.status !== "waiting") {
+      return res.status(400).json({ error: "Only waiting tickets can be marked no-show" });
+    }
+    ticket.status = "noshow";
+    await ticket.save();
+    res.json({ ok: true, doctor: await serializeDoctor(doctor) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

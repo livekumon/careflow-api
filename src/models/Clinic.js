@@ -16,6 +16,8 @@ const clinicSchema = new mongoose.Schema(
     },
     /** IANA timezone for consultation hours (Vercel runs in UTC). */
     timezone: { type: String, default: "Asia/Kolkata" },
+    /** Default staff UI language: en | es | fr | zh | ja | te | hi */
+    preferredLanguage: { type: String, default: "en" },
     /** Default appointment check-in window (minutes before / after start). */
     checkInBeforeMin: { type: Number, default: 10 },
     checkInAfterMin: { type: Number, default: 15 },
