@@ -82,7 +82,7 @@ function mondayOf(dateStr, timeZone) {
   return addDaysIso(dateStr, -sinceMon);
 }
 
-function resolvePeriod({ range = "month", from, to, timeZone = DEFAULT_TIMEZONE } = {}) {
+function resolvePeriod({ range = "today", from, to, timeZone = DEFAULT_TIMEZONE } = {}) {
   const today = getZonedParts(new Date(), timeZone).dateStr;
   let period = RANGES.has(range) ? range : "month";
   let fromStr;
