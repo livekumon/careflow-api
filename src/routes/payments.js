@@ -8,6 +8,7 @@ const {
   capturePaypalOrder,
   createRazorpayOrder,
   verifyRazorpayPayment,
+  listPayments,
 } = require("../services/paymentService");
 
 const router = express.Router();
@@ -26,6 +27,26 @@ router.get("/config", authRequired, (_req, res) => {
   res.json(paymentConfig());
 });
 
+router.get(
+  "/",
+  authRequired,
+  requireRoles("admin", "receptionist", "doctor"),
+  async (req, res, next) => {
+    try {
+      if (!req.auth.clinicId) {
+        return res.status(400).json({ error: "No clinic on this account" });
+      }
+      const payments = await listPayments({
+        clinicId: req.auth.clinicId,
+        limit: req.query?.limit,
+      });
+      res.json({ payments });
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
+      next(err);
+    }
+  }
+);
 router.post(
   "/paypal/create-order",
   authRequired,

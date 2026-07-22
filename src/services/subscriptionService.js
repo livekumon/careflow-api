@@ -2,7 +2,7 @@ const Clinic = require("../models/Clinic");
 
 const TRIAL_DAYS = 30;
 
-/** Display + paid plans — matches Pammi marketing site pricing cards. */
+/** Display + paid plans — Free / Pro / Pro Plus (ids kept for billing compatibility). */
 const PLANS = [
   {
     id: "free",
@@ -16,7 +16,7 @@ const PLANS = [
   },
   {
     id: "solo",
-    name: "Per doctor",
+    name: "Pro",
     description: "One doctor seat after your free month",
     annual: 5,
     monthly: 10,
@@ -25,7 +25,7 @@ const PLANS = [
   },
   {
     id: "pack",
-    name: "Team of 5",
+    name: "Pro Plus",
     description: "Group pack for five doctors",
     annual: 20,
     monthly: 40,

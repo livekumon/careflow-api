@@ -291,10 +291,43 @@ async function verifyRazorpayPayment({
   };
 }
 
+function serializePayment(payment) {
+  if (!payment) return null;
+  return {
+    id: String(payment._id),
+    planId: payment.planId,
+    billingPeriod: payment.billingPeriod,
+    amountUsd: payment.amountUsd,
+    amountInr: payment.amountInr,
+    currency: payment.currency || (payment.method === "razorpay" ? "INR" : "USD"),
+    method: payment.method,
+    status: payment.status,
+    providerOrderId: payment.providerOrderId || "",
+    providerPaymentId: payment.providerPaymentId || "",
+    completedAt: payment.completedAt || null,
+    createdAt: payment.createdAt,
+  };
+}
+
+async function listPayments({ clinicId, limit = 50 } = {}) {
+  if (!clinicId) {
+    const err = new Error("Clinic required");
+    err.status = 400;
+    throw err;
+  }
+  const rows = await Payment.find({ clinicId })
+    .sort({ completedAt: -1, createdAt: -1 })
+    .limit(Math.min(100, Math.max(1, Number(limit) || 50)))
+    .lean();
+  return rows.map(serializePayment);
+}
+
 module.exports = {
   paymentConfig,
   createPaypalOrder,
   capturePaypalOrder,
   createRazorpayOrder,
   verifyRazorpayPayment,
+  listPayments,
+  serializePayment,
 };
