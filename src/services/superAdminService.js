@@ -175,6 +175,7 @@ async function getSuperAdminDashboard(opts = {}) {
     doctorTrendRows,
     servedTrendRows,
     clinics,
+    doctors,
   ] = await Promise.all([
     Clinic.countDocuments({ active: true, createdAt: createdInRange }),
     Doctor.countDocuments({ active: true, createdAt: createdInRange }),
@@ -226,7 +227,23 @@ async function getSuperAdminDashboard(opts = {}) {
       .select("name slug location createdAt accessStopped accessStoppedAt accessStoppedReason")
       .sort({ createdAt: -1 })
       .lean(),
+    Doctor.find({ active: true, createdAt: createdInRange })
+      .select("name specialty clinicId createdAt")
+      .sort({ createdAt: -1 })
+      .lean(),
   ]);
+
+  const doctorClinicIds = [
+    ...new Set(doctors.map((d) => String(d.clinicId)).filter(Boolean)),
+  ];
+  const doctorClinics = doctorClinicIds.length
+    ? await Clinic.find({ _id: { $in: doctorClinicIds } })
+        .select("name slug")
+        .lean()
+    : [];
+  const clinicNameById = new Map(
+    doctorClinics.map((c) => [String(c._id), { name: c.name, slug: c.slug }])
+  );
 
   const locationMap = new Map();
   for (const c of clinics) {
@@ -264,7 +281,21 @@ async function getSuperAdminDashboard(opts = {}) {
     },
     locations,
     clinics: clinics.map((c) => serializeClinicRow(c)),
+    doctors: doctors.map((d) => serializeDoctorRow(d, clinicNameById)),
     timeZone: period.timeZone,
+  };
+}
+
+function serializeDoctorRow(d, clinicNameById) {
+  const clinic = clinicNameById.get(String(d.clinicId)) || null;
+  return {
+    id: String(d._id),
+    name: d.name,
+    specialty: d.specialty || "",
+    clinicId: d.clinicId ? String(d.clinicId) : null,
+    clinicName: clinic?.name || "Unknown clinic",
+    clinicSlug: clinic?.slug || "",
+    createdAt: d.createdAt,
   };
 }
 
